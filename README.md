@@ -13,14 +13,14 @@ This repository is use-case centric. It was created to help you match the config
 
 ## Architecture
 The recommended way to deploy FortiGates is a multi-AZ Active-Passive FGCP cluster with set of (up to 3) load balancers to direct the traffic flows (a pattern known as "load balancer sandwich"):
-![FortiGate reference architecture overview](docs/img/fgt-ref-overview3.png)
+![FortiGate reference architecture overview](docs/images/overview.svg)
 
 While it is technically possible to use a single network interface to connect to both internal and external networks, it is recommended to use one external and one internal NIC for clarity of architecture and FortiGate configuration. Additional two NICs will be used for cluster heartbeat and management.
 
 It is recommended to place all the workloads in separate VPCs (possibly in separate projects) and use [VPC Peering](https://cloud.google.com/vpc/docs/vpc-peering) to maintain connectivity between FortiGate internal VPC and workload VPCs.
 
-[Read more about the reference architecture design in GCP](docs/architecture-reference.md)
-[Read more about the tutorial sample architecture](docs/architecture-tutorial.md)
+* [Read more about the reference architecture design in GCP](docs/architecture-reference.md)
+* [Read more about the tutorial sample architecture](docs/architecture-tutorial.md)
 
 ## How To Deploy
 
