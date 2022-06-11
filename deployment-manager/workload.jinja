@@ -1,0 +1,67 @@
+{% set prefix = properties.prefix|default(env.deployment) %}
+
+resources:
+## Frontend
+#  Simple nginx proxy forwarding traffic on 8080 to backend ILB
+- name: {{prefix}}-wrkld-tier1-proxy
+  type: compute.v1.instance
+  properties:
+    machineType: zones/{{properties.zone}}/machineTypes/e2-micro
+    zone: {{properties.zone}}
+    disks:
+    - deviceName: boot
+      type: PERSISTENT
+      boot: true
+      initializeParams:
+        sourceImage: https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-2004-lts
+    networkInterfaces:
+    - network: {{properties.frontendVpc}}
+      subnetwork: {{properties.frontendSubnet}}
+      networkIP: 10.0.1.2
+    tags:
+      items:
+      - tier1
+    metadata:
+      items:
+      - key: startup-script
+        value: |
+          apt-get update -o "APT::Update::Error-Mode=any" && apt-get install nginx -y || (echo "APT ERROR REBOOTING"; sleep 20; reboot)
+          echo "server {
+            listen 8080;
+            location / {
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_pass http://10.0.2.2;
+            }
+          }" > /etc/nginx/sites-available/proxy.conf
+          ln -s /etc/nginx/sites-available/proxy.conf /etc/nginx/sites-enabled/proxy
+          ln -sf /dev/console /var/log/nginx/error.log
+          ln -sf /dev/console /var/log/nginx/access.log
+          service nginx restart
+
+## Backend
+#  Simple nodejs app printing connection info
+- name: {{prefix}}-wrkld-tier2-websrv
+  type: compute.v1.instance
+  properties:
+    machineType: zones/{{properties.zone}}/machineTypes/e2-micro
+    zone: {{properties.zone}}
+    disks:
+    - deviceName: boot
+      type: PERSISTENT
+      boot: true
+      initializeParams:
+        sourceImage: https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-2004-lts
+    networkInterfaces:
+    - network: {{properties.backendVpc}}
+      subnetwork: {{properties.backendSubnet}}
+      networkIP: 10.0.2.2
+    tags:
+      items:
+      - tier2
+    metadata:
+      items:
+      - key: startup-script
+        value: |
+          apt-get remove nginx-common nginx-core -y
+          apt-get update -o "APT::Update::Error-Mode=any" && apt-get install nginx -y || (echo "APT ERROR REBOOTING"; sleep 20; reboot)
+          echo 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /var/www/html/eicar.com

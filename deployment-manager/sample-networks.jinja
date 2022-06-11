@@ -1,0 +1,60 @@
+{% set prefix = properties.prefix|default(env.deployment) %}
+
+resources:
+{# FortiGate-connected networks #}
+{% for network in ['external', 'internal', 'hasync', 'mgmt']%}
+- name: {{prefix}}-{{network}}-vpc
+  type: compute.v1.network
+  properties:
+    autoCreateSubnetworks: false
+
+- name: {{prefix}}-{{network}}-sb-{{properties.shortRegion}}
+  type: compute.v1.subnetwork
+  properties:
+    region: {{properties.region}}
+    network: $(ref.{{prefix}}-{{network}}-vpc.selfLink)
+    ipCidrRange: 172.20.{{loop.index0}}.0/24
+{% endfor %}
+
+{# Workload networks #}
+{% for spoke in ['tier1', 'tier2']%}
+- name: {{prefix}}-wrkld-vpc-{{spoke}}
+  type: compute.v1.network
+  properties:
+    autoCreateSubnetworks: false
+
+- name: {{prefix}}-wrkld-sb-{{spoke}}-{{properties.shortRegion}}
+  type: compute.v1.subnetwork
+  properties:
+    region: {{properties.region}}
+    network: $(ref.{{prefix}}-wrkld-vpc-{{spoke}}.selfLink)
+    ipCidrRange: 10.0.{{loop.index}}.0/24
+
+- name: {{prefix}}-wrkld-fw-{{spoke}}-allowall
+  type: compute.v1.firewall
+  properties:
+    network: $(ref.{{prefix}}-wrkld-vpc-{{spoke}}.selfLink)
+    priority: 100
+    sourceRanges:
+    - 0.0.0.0/0
+    allowed:
+    - IPProtocol: all
+{% endfor %}
+
+outputs:
+{% for network in ['external', 'internal', 'hasync', 'mgmt']%}
+- name: {{network}}VpcName
+  value: {{prefix}}-{{network}}-vpc
+- name: {{network}}VpcLink
+  value: $(ref.{{prefix}}-{{network}}-vpc.selfLink)
+- name: {{network}}SbLink
+  value: $(ref.{{prefix}}-{{network}}-sb-{{properties.shortRegion}}.selfLink)
+{% endfor %}
+{% for spoke in ['tier1', 'tier2']%}
+- name: {{spoke}}VpcName
+  value: {{prefix}}-wrkld-vpc-{{spoke}}
+- name: {{spoke}}VpcLink
+  value: $(ref.{{prefix}}-wrkld-vpc-{{spoke}}.selfLink)
+- name: {{spoke}}SbLink
+  value: $(ref.{{prefix}}-wrkld-sb-{{spoke}}-{{properties.shortRegion}}.selfLink)
+{% endfor %}

@@ -1,0 +1,196 @@
+imports:
+- path: fgcp-ha-ap-multilb.jinja
+- path: peerings.jinja
+- path: sample-networks.jinja
+- path: workload.jinja
+
+# Update and uncomment 4 lines below to deploy with your own licenses
+- path: lic1.lic
+  name: lic1.lic
+- path: lic2.lic
+  name: lic2.lic
+
+resources:
+# Create a set of sample VPC networks and subnets
+- name: Networks
+  type: sample-networks.jinja
+  properties:
+    region: europe-west1
+    shortRegion: euwest1
+
+# Peerings resource will peer all the VPCs together creating a hub-and-spoke topology
+- name: Peerings
+  type: peerings.jinja
+  properties:
+    hub:
+      name: $(ref.Networks.internalVpcName)
+      url: $(ref.Networks.internalVpcLink)
+    spokes:
+    - name: $(ref.Networks.tier1VpcName)
+      url: $(ref.Networks.tier1VpcLink)
+    - name: $(ref.Networks.tier2VpcName)
+      url: $(ref.Networks.tier2VpcLink)
+    deleteSpokeDefaultRoutes: true #this will trigger deletion of existing default route from spoke VPCs
+    # Explicit dependencies are needed as peerings cannot be created in parallel with custom routes
+    # native deployment manager explicit dependencies are nto supported for nested templates, so we need to emulate
+    explicitDepend: $(ref.My_FortiGate_Cluster.waitForRoutes)
+
+- name: eip-service1
+  type: compute.v1.address
+  properties:
+    region: europe-west1
+
+# This section will deploy an A-P HA cluster of FortiGates in LB sandwich
+- name: My_FortiGate_Cluster
+  type: fgcp-ha-ap-multilb.jinja
+  properties:
+    #prefix: fgt # optional. defaults to deployment name
+    zones:
+    - europe-west1-b
+    - europe-west1-c
+    instanceType: e2-standard-4 #optional. defaults to e2-standard-4
+    license: #optional. default: payg
+      type: byol
+# Uncomment the lics section below to refer to your own BYOL licenses
+      lics:
+      - lic1.lic
+      - lic2.lic
+    serialPortEnable: false
+    networks:
+    # Replace vpcLink, subnetLink URLs and adapt ipCidrRange CIDRs for all networks
+    # in this section if reusing this configuration with your existing VPCs
+    - name: external-vpc
+      vpcLink: $(ref.Networks.externalVpcLink)
+      subnetLink: $(ref.Networks.externalSbLink)
+      ipCidrRange: 172.20.0.0/24
+      serviceIPs: # this section triggers creation of ELB and EIP
+      - name: serv1
+        address: $(ref.eip-service1.address)
+    - name: internal-vpc
+      vpcLink: $(ref.Networks.internalVpcLink)
+      subnetLink: $(ref.Networks.internalSbLink)
+      ipCidrRange: 172.20.1.0/24
+      routes: # this section triggers auto-creation of ILB
+      - destRange: 0.0.0.0/0
+        name: default
+    - name: hasync
+      vpcLink: $(ref.Networks.hasyncVpcLink)
+      subnetLink: $(ref.Networks.hasyncSbLink)
+      ipCidrRange: 172.20.2.0/24
+    - name: management
+      vpcLink: $(ref.Networks.mgmtVpcLink)
+      subnetLink: $(ref.Networks.mgmtSbLink)
+      ipCidrRange: 172.20.3.0/24
+      externalIP:
+        name: mgmt
+    fwConfig: |
+      config router static
+        edit 0
+          set dst 10.0.0.0/9
+          set device port2
+          set gateway 172.20.1.1
+        next
+      end
+      config system dns
+        set primary 169.254.169.254
+        unset secondary
+        set protocol cleartext
+      end
+      config firewall address
+        edit "GCP-tier1"
+          set type dynamic
+          set sdn "gcp_conn"
+          set color 17
+          set filter "Tag=tier1"
+        next
+        edit "GCP-tier2"
+          set type dynamic
+          set sdn "gcp_conn"
+          set color 17
+          set filter "Tag=tier2"
+        next
+      end
+      config firewall vip
+        edit "serv1-to-frontend"
+          set extip $(ref.eip-service1.address)
+          set extintf "port1"
+          set mappedip 10.0.1.2
+          set portforward enable
+          set extport 80
+          set mappedport 8080
+        next
+      end
+      config firewall policy
+        edit 1
+          set name "wrkld-to-inet"
+          set srcintf "port2"
+          set dstintf "port1"
+          set action accept
+          set srcaddr "GCP-tier1" "GCP-tier2"
+          set dstaddr "all"
+          set schedule "always"
+          set service "ALL"
+          set utm-status enable
+          set ssl-ssh-profile "certificate-inspection"
+          set av-profile "default"
+          set webfilter-profile "default"
+          set dnsfilter-profile "default"
+          set ips-sensor "default"
+          set application-list "default"
+          set nat enable
+          set ippool enable
+          set poolname "GCP-serv1"
+          set logtraffic all
+        next
+        edit 2
+          set name "tier1-to-tier2"
+          set srcintf "port2"
+          set dstintf "port2"
+          set action accept
+          set srcaddr "GCP-tier1"
+          set dstaddr "GCP-tier2"
+          set schedule "always"
+          set service "ALL"
+          set utm-status enable
+          set ssl-ssh-profile "certificate-inspection"
+          set av-profile "default"
+          set ips-sensor "default"
+          set nat disable
+          set logtraffic all
+        next
+        edit 3
+          set name "serv1-to-frontend-tcp80-allow"
+          set srcintf "port1"
+          set dstintf "port2"
+          set action accept
+          set srcaddr "all"
+          set dstaddr "serv1-to-frontend"
+          set schedule "always"
+          set service "ALL"
+          set utm-status enable
+          set ssl-ssh-profile "certificate-inspection"
+          set av-profile "default"
+          set ips-sensor "default"
+          set logtraffic all
+        next
+      end
+
+# example web server and a proxy
+- name: Workload
+  type: workload.jinja
+  properties:
+    region: europe-west1
+    zone: europe-west1-b
+    shortRegion: euwest1
+    frontendVpc: $(ref.Networks.tier1VpcLink)
+    frontendSubnet: $(ref.Networks.tier1SbLink)
+    backendVpc: $(ref.Networks.tier2VpcLink)
+    backendSubnet: $(ref.Networks.tier2SbLink)
+
+outputs:
+- name: Temporary Admin Password
+  value: $(ref.My_FortiGate_Cluster.defaultPassword)
+- name: Management IPs
+  value: $(ref.My_FortiGate_Cluster.mgmtPublicIPs)
+- name: Web Service IP
+  value: $(ref.eip-service1.address)

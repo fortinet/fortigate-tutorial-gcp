@@ -1,0 +1,322 @@
+{% import "utils-netcalc.jinja" as netcalc %}
+
+{# If no prefix is defined in properties, set it to deployment name #}
+{% set prefix = properties.prefix|default(env.deployment) %}
+
+{# Derive region name from the first zone #}
+{% set region=properties.zones[0].split('-')[0]~'-'~properties.zones[0].split('-')[1] %}
+
+{# Indeces used for building HA config #}
+{% set mgmtNicIndex0 = 3 %}
+{% set hasyncNicIndex0 = 2 %}
+
+resources:
+{% for vm in ["Primary", "Secondary"] %}
+{% set vmLoop=loop %}
+{% set fgtName="fgt"~loop.index %}
+- name: Fortigate_{{vm}}
+  type: singlevm2.jinja
+  properties:
+    prefix: {{ prefix }}
+    name: {{ fgtName }}
+    zone: {{ properties.zones[loop.index0]}}
+    instanceType: {{ properties.instanceType }}
+    {% if 0==loop.index0 %}
+    createCloudFirewallRules: true
+    {% else %}
+    createCloudFirewallRules: false
+    {% endif %}
+    license:
+      type: {{ properties.license.type }}
+      {% if ('byol'==properties.license.type) and ("lics" in properties.license)%}
+      lic: {{ properties.license.lics[ loop.index0 ]}}
+      {% endif %}
+    version: {{ properties.version }}
+    serviceAccount: {{ properties.serviceAccount }}
+    serialPortEnable: {{ properties.serialPortEnable }}
+    {# Routes will be created later for ILBs. Disable for VMs #}
+    routes: []
+    networks:
+    {% for nic in properties.networks %}
+    - name: {{ nic.name }}
+      vpcLink: {{ nic.vpcLink }}
+      subnetLink: {{ nic.subnetLink }}
+      ipCidrRange: {{ nic.ipCidrRange }}
+      networkIP: {{ netcalc.getNthIpWithMask( nic.ipCidrRange, vmLoop.index+nic.addressOffset ) }}
+      {%- if loop.index0 in [mgmtNicIndex0, hasyncNicIndex0]%}
+      reserved: true
+      {% endif %}
+      {%- if nic.allowaccess %}
+      allowaccess: {{ nic.allowaccess }}
+      {%- endif %}
+      {%- if nic.description %}
+      description: {{ nic.description }}
+      {%- endif %}
+      {% if "externalIP" in nic %}
+      externalIP:
+        name: {{ fgtName }}-{{ nic.externalIP.name }}
+      {% endif %}
+      {% if "serviceIPs" in nic %}
+      additionalExternalIPs:
+      {% for serviceIP in nic.serviceIPs %}
+      - name: {{ serviceIP.name }}
+        createAddressAndFwdRule: false
+        {% if serviceIP.address %}
+        address: {{ serviceIP.address }}
+        {% else %}
+        address: $(ref.{{ prefix }}-{{ serviceIP.name }}.address)
+        {% endif %}
+        {% if 'description' in serviceIP %}
+        description: {{ serviceIP.description }}
+        {% endif %}
+      {% endfor %}
+      {% endif %}
+    {% endfor %}
+    fwConfig: |
+      config system probe-response
+        set port {{ properties.probePort }}
+        set mode http-probe
+        set http-probe-value OK
+      end
+
+      config system ha
+        set group-name "cluster1"
+        set mode a-p
+        set hbdev "port{{ hasyncNicIndex0+1 }}" 50
+        set session-pickup enable
+        set ha-mgmt-status enable
+        config ha-mgmt-interfaces
+          edit 1
+          set interface "port{{ mgmtNicIndex0+1 }}"
+          set gateway {{ netcalc.getNthIp( properties.networks[mgmtNicIndex0].ipCidrRange, 0 )}}
+          next
+        end
+        set override disable
+        set priority {{ loop.index%2 }}
+        set unicast-hb enable
+        set unicast-hb-peerip {{ netcalc.getNthIp( properties.networks[ hasyncNicIndex0 ].ipCidrRange, (loop.index%2)+1 )}}
+        set unicast-hb-netmask {{ netcalc.getNetmaskLong( properties.networks[ hasyncNicIndex0 ].ipCidrRange )}}
+      end
+
+      config system interface
+      {%- for network in properties.networks %}
+      {%- if "routes" in network or "serviceIPs" in network %}
+        edit port{{ loop.index }}
+        set secondary-IP enable
+        config secondaryip
+          {%- if "routes" in network %}
+          edit 0
+          set ip $(ref.{{ prefix }}-{{ network.name | default( 'net'~loop.index )}}-ilb.IPAddress) 255.255.255.255
+          set allowaccess probe-response
+          next
+          {%- endif %}
+          {%- if "serviceIPs" in network %}
+            {%- for serviceIP in network.serviceIPs %}
+          edit 0
+              {%- if serviceIP.address %}
+          set ip {{ serviceIP.address }} 255.255.255.255
+              {%- else %}
+          set ip $(ref.{{ prefix }}-{{ serviceIP.name }}.address) 255.255.255.255
+              {%- endif %}
+          set allowaccess probe-response
+          next
+            {%- endfor %}
+          {%- endif %}
+        end
+        next
+      {%- endif %}
+      {%- endfor %}
+      end
+      config router static
+      {%- for network in properties.networks %}
+      {# do NOT concatenate "for" with "if" or you'll break index #}
+      {%- if "routes" in network %}
+      edit 10{{loop.index}}
+        set dst 35.191.0.0/16
+        set device port{{ loop.index }}
+        set gateway {{ netcalc.getNthIp( network.ipCidrRange, 0 )}}
+      next
+      edit 11{{loop.index}}
+        set dst 130.211.0.0/22
+        set device port{{ loop.index }}
+        set gateway {{ netcalc.getNthIp( network.ipCidrRange, 0 )}}
+      next
+      {%- endif %}
+      {%- endfor %}
+      end
+      {{properties.fwConfig | indent(7)}}
+{% endfor%}
+
+
+{% for zoneindx in [0,1] %}
+- name: {{ prefix }}-hagroup{{ zoneindx }}
+  type: compute.v1.instanceGroup
+  properties:
+    zone: {{ properties.zones[ zoneindx ]}}
+- name: {{ prefix }}-hagroup{{zoneindx}}-add
+  action: gcp-types/compute-v1:compute.instanceGroups.addInstances
+  metadata:
+    runtimePolicy:
+    - CREATE
+  properties:
+    zone: {{ properties.zones[ zoneindx ]}}
+    instanceGroup: $(ref.{{ prefix }}-hagroup{{ zoneindx }}.name)
+    instances:
+    - instance: $(ref.{{ prefix }}-fgt{{ loop.index }}-vm.selfLink)
+{#}
+- name: {{ prefix }}-hagroup{{zoneindx}}-setPort
+  action: gcp-types/compute-v1:compute.instanceGroups.setNamedPorts
+  metadata:
+    runtimePolicy:
+    - CREATE
+  properties:
+    zone: {{ properties.zones[ zoneindx ]}}
+    instanceGroup: $(ref.{{ prefix }}-hagroup{{ zoneindx }}.name)
+    namedPorts:
+    - name: http
+      port: 80
+{#}
+{% endfor %}
+
+- name: {{ prefix }}-ilb-probe{{ properties.probePort }}
+  type: compute.v1.regionHealthCheck
+  properties:
+    type: HTTP
+    region: {{ region }}
+    httpHealthCheck:
+      port: {{ properties.probePort }}
+      checkIntervalSec: 4
+      timeoutSec: 2
+      unhealthyThreshold: 2
+      healthyThreshold: 1
+
+{# ILB resources #}
+{% for network in properties.networks if "routes" in network %}
+{# Regional backend service and forwarding rule must be created per VPC #}
+- name: {{ prefix }}-{{ network.name | default( 'net'~loop.index ) }}-lbbes
+  type: compute.v1.regionBackendService
+  properties:
+    region: {{ region }}
+    loadBalancingScheme: INTERNAL
+    network: {{ network.vpcLink }}
+    protocol: TCP
+    healthChecks:
+    - $(ref.{{ prefix }}-ilb-probe{{ properties.probePort }}.selfLink)
+    backends:
+    - group: $(ref.{{ prefix }}-hagroup0.selfLink)
+    - group: $(ref.{{ prefix }}-hagroup1.selfLink)
+- name: {{ prefix }}-{{ network.name | default( 'net'~loop.index )}}-ilb
+  type: compute.v1.forwardingRule
+  properties:
+    region: {{ region }}
+    loadBalancingScheme: INTERNAL
+    IPAddress: {{ netcalc.getNthIp( network.ipCidrRange, 3+network.addressOffset )}}
+    IPProtocol: TCP
+    allPorts: true
+    backendService: $(ref.{{ prefix }}-{{ network.name | default( 'net'~loop.index )}}-lbbes.selfLink)
+    network: {{ network.vpcLink }}
+    subnetwork: {{ network.subnetLink }}
+
+{% set netloop=loop %}
+{% for route in network.routes %}
+- name: {{ prefix }}-{{ network.name | default( 'net'~netloop.index )}}-rt-{{ route.name | default( loop.index )}}-via-fgt
+  type: compute.v1.route
+  properties:
+    destRange: {{ route.destRange }}
+    {% if "priority" in route %}
+    priority: {{ route.priority }}
+    {% endif %}
+    network: {{ network.vpcLink }}
+    nextHopIlb: $(ref.{{ prefix }}-{{ network.name | default( 'net'~netloop.index )}}-ilb.selfLink )
+    description: {{ route.description | default("route via FGT") }}
+{% endfor %}{# for each route #}
+{% endfor %}{# for each network #}
+
+{% for network in properties.networks if "serviceIPs" in network %}
+{# add ELB forwarding rules for each address in serviceIPs #}
+- name: {{ prefix }}-{{ network.name | default( 'net'~loop.index ) }}-elb-bes
+  type: compute.v1.regionBackendService
+  properties:
+    region: {{ region }}
+    loadBalancingScheme: EXTERNAL
+    protocol: UNSPECIFIED
+    healthChecks:
+    - $(ref.{{ prefix }}-ilb-probe{{ properties.probePort }}.selfLink)
+    backends:
+    - group: $(ref.{{ prefix }}-hagroup0.selfLink)
+    - group: $(ref.{{ prefix }}-hagroup1.selfLink)
+
+  {% for serviceIP in network.serviceIPs %}
+    {% if not serviceIP.address %}
+- name: {{ prefix }}-{{ serviceIP.name }}
+  type: compute.v1.address
+  properties:
+    region: {{ region }}
+      {% if "description" in additionalIP %}
+    description: {{ serviceIP.description }}
+      {% endif %}
+      {% if "networkTier" in additionalIP %}
+    networkTier: {{ additionalIP.networkTier }}
+      {% endif %}
+    {% endif %}
+
+- name: {{ prefix }}-{{ serviceIP.name }}-elb
+  type: compute.v1.forwardingRule
+  properties:
+    region: {{ region }}
+    {% if serviceIP.address %}
+    IPAddress: {{ serviceIP.address }}
+    {% else %}
+    IPAddress: $(ref.{{ prefix }}-{{ serviceIP.name }}.selfLink)
+    {% endif %}
+    IPProtocol: L3_DEFAULT
+    allPorts: true
+    loadBalancingScheme: EXTERNAL
+    backendService: $(ref.{{ prefix }}-{{ network.name | default( 'net'~loop.index ) }}-elb-bes.selfLink)
+  {% endfor %}
+{% endfor %}
+
+
+{# Cloud NAT needed for outbound connections to FortiGuard #}
+- name: {{ prefix }}-cloudnat-router
+  type: compute.v1.router
+  properties:
+    region: {{ region }}
+    network: {{ properties.networks[0].vpcLink }}
+    nats:
+    - name: {{ prefix }}-cloudnat
+      sourceSubnetworkIpRangesToNat: ALL_SUBNETWORKS_ALL_IP_RANGES
+      natIpAllocateOption: AUTO_ONLY
+
+outputs:
+- name: waitForRoutes
+{# waitForRoutes can be used as an explicit dependency when using VPC peering #}
+  value:
+  {% for network in properties.networks if "routes" in network %}
+    {% set netloop=loop %}
+    {% for route in network.routes %}
+  - {{ prefix }}-{{ network.name | default( 'net'~netloop.index )}}-rt-{{ route.name | default( loop.index )}}-via-fgt
+    {% endfor %}
+  {% endfor %}
+- name: serviceIPs
+  value:
+  {% for network in properties.networks if "serviceIPs" in network %}
+  {# add ELB forwarding rules for each address in serviceIPs #}
+    {% for serviceIP in network.serviceIPs %}
+      {% if serviceIP.address %}
+  - {{ serviceIP.address }}
+      {% else %}
+  - $(ref.{{ prefix }}-{{ serviceIP.name }}.address)
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+- name: defaultPassword
+  value: $(ref.Fortigate_Primary.defaultPassword)
+- name: mgmtPublicIPs
+{% if "externalIP" in properties.networks[ mgmtNicIndex0 ] %}
+  value:
+  - $(ref.{{ prefix }}-fgt1-{{ properties.networks[mgmtNicIndex0].externalIP.name }}.address)
+  - $(ref.{{ prefix }}-fgt2-{{ properties.networks[mgmtNicIndex0].externalIP.name }}.address)
+{% else %}
+  value: undefined
+{% endif %}

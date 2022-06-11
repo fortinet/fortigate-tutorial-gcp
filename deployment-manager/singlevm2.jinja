@@ -1,0 +1,225 @@
+{% set prefix = properties.prefix|default(env.deployment) %}
+
+{% set externalIpName="ext-ip" %}
+
+{% import "utils-netcalc.jinja" as netcalc %}
+{% import "utils-images.jinja" as images %}
+
+{% set firmwareImage=images.getFgtImage( properties.version, properties.license.type ) %}
+{% if properties.zone is defined %}
+{% set zone=properties.zone %}
+{% else %}
+{% set zone=properties.zones[0] %}
+{% endif %}
+{% set region=zone.split("-")[0]~"-"~zone.split("-")[1] %}
+{% set fgname=properties.name | default("fgt") %}
+
+
+resources:
+{% for nic in properties.networks if "externalIP" in nic %}
+- name: {{ prefix }}-{{ nic.externalIP.name }}
+  type: compute.v1.address
+  properties:
+    region: {{ region }}
+    description: Public IP of Fortigate instance
+    {% if "networkTier" in nic.externalIP %}
+    networkTier: {{nic.externalIP.networkTier}}
+    {% endif %}
+{% endfor %}
+
+{% if properties.logDiskSizeGb>0 %}
+- name: {{ prefix }}-{{ fgname }}-logdisk
+  type: compute.v1.disk
+  properties:
+    zone: {{ zone }}
+    diskSizeGb: {{ properties.logDiskSizeGb }}
+{% endif %}
+- name: {{ prefix }}-{{ fgname }}-vm
+  type: compute.v1.instance
+  properties:
+    zone: {{ zone }}
+    machineType: zones/{{ zone }}/machineTypes/{{ properties.instanceType }}
+    disks:
+    - deviceName: boot
+      type: PERSISTENT
+      boot: true
+      autoDelete: true
+      {% if properties.multiIpSubnetEnable %}
+      guestOsFeatures:
+      - type: MULTI_IP_SUBNET
+      {% endif %}
+      licenses:
+      - https://www.googleapis.com/compute/v1/projects/fortigcp-project-001/global/licenses/fortigate
+      initializeParams:
+        sourceImage: {{ firmwareImage }}
+        diskSizeGb: 10.0
+    {% if properties.logDiskSizeGb>0 %}
+    - deviceName: {{ prefix }}-{{ fgname }}-logdisk
+      source: $(ref.{{ prefix }}-{{ fgname }}-logdisk.selfLink)
+      type: PERSISTENT
+      autoDelete: true
+      boot: false
+    {% endif %}
+    networkInterfaces:
+    {% for nic in properties.networks %}
+    - network: {{ nic.vpcLink }}
+      subnetwork: {{ nic.subnetLink }}
+      {%- if "networkIP" in nic %}
+      networkIP: {{ nic.networkIP.split('/')[0] }}
+      {% elif  "ipCidrRange" in nic %}
+      networkIP: {{ netcalc.getNthIp( nic.ipCidrRange, 1 ) }}
+      {%- endif %}
+      {%- if "externalIP" in nic %}
+      accessConfigs:
+      - name: {{prefix}}-{{ nic.externalIP.name }}
+        type: ONE_TO_ONE_NAT
+        {%- if nic.externalIP.address is defined %}
+        natIP: {{ nic.externalIP.address }}
+        {%- else %}
+        natIP: $(ref.{{ prefix }}-{{ nic.externalIP.name }}.address)
+        {%- endif %}
+        {%- if "networkTier" in nic.externalIP %}
+        networkTier: {{ nic.externalIP.networkTier }}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+    canIpForward: Yes
+    serviceAccounts:
+    - email: {{ properties.serviceAccount }}
+      scopes:
+      - 'https://www.googleapis.com/auth/cloud.useraccounts.readonly'
+      - 'https://www.googleapis.com/auth/logging.write'
+      - 'https://www.googleapis.com/auth/monitoring.write'
+      - 'https://www.googleapis.com/auth/compute'
+    metadata:
+      items:
+    {%- if properties.adminPassword %}
+      - key: fortigate_user_password
+        value: {{ properties.adminPassword }}
+    {%- endif %}
+      - key: serial-port-enable
+        value: "{{ properties.serialPortEnable }}"
+    {% if (properties.license.type == "byol") and (("lic" in properties.license) or ("lics" in properties.license))%}
+      - key: license
+        value: |
+          {%- if properties.license.lic is defined %}
+          {{ imports[properties.license.lic] | indent(10) }}
+          {%- else %}
+          {{ imports[properties.license.lics[0]] | indent(10) }}
+          {%- endif %}
+    {% endif %}
+      - key: user-data
+        value: |
+          config system global
+            set hostname "{{ prefix }}-{{ fgname }}"
+          end
+          config system interface
+          {%- for nic in properties.networks %}
+            edit port{{ loop.index }}
+            set description {{ nic.description | default( properties.nicPropMap[loop.index0].description )}}
+            set role {{ nic.role | default( properties.nicPropMap[loop.index0].role )}}
+            set allowaccess {{ nic.allowaccess | default( properties.nicPropMap[loop.index0].allowaccess )}}
+            {%- if "networkIP" in nic %}
+            set mode static
+            set ip {{ nic.networkIP }}
+            {%- elif  "ipCidrRange" in nic %}
+            set mode static
+            set ip {{ netcalc.getNthIpWithMask( nic.ipCidrRange, 1 ) }}
+            {%- endif %}
+            next
+          {%- endfor %}
+          end
+          config router static
+          {%- for nic in properties.networks %}
+          {%- if ("ipCidrRange" in nic) and (("wan"==nic.role | default( properties.nicPropMap[loop.index0].role )) or ("externalIP" in nic)) and not("reserved" in nic) %}
+            edit {{loop.index}}
+              set device port{{loop.index}}
+              set gateway {{ netcalc.getNthIp( nic.ipCidrRange, 0 )}}
+            next
+          {%- elif (not properties.multiIpSubnetEnable) and ("ipCidrRange" in nic) %}
+            edit {{loop.index}}
+              set device port{{loop.index}}
+              set gateway {{ netcalc.getNthIp( nic.ipCidrRange, 0 )}}
+              set dst {{nic.ipCidrRange}}
+            next
+          {%- endif %}
+          {%- endfor %}
+          end
+          config system sdn-connector
+            edit "gcp_conn"
+            set type gcp
+          next
+          end
+
+          {%- for nic in properties.networks if "additionalExternalIPs" in nic %}
+          {%- for additionalIP in nic.additionalExternalIPs %}
+          config firewall ippool
+            edit "GCP-{{ additionalIP.name }}"
+              set type overload
+              {%- if additionalIP.address %}
+              set startip {{ additionalIP.address }}
+              set endip {{ additionalIP.address }}
+              {%- else %}
+              set startip $(ref.{{ prefix }}-{{ additionalIP.name }}.address)
+              set endip $(ref.{{ prefix }}-{{ additionalIP.name }}.address)
+              {%- endif %}
+              set comments "{{ additionalIP.description | default('Added by deployment template')}}"
+            next
+          end
+          config firewall address
+            edit "GCP-{{ additionalIP.name }}"
+              set color 2
+              {%- if additionalIP.address %}
+              set subnet {{ additionalIP.address }}/32
+              {%- else %}
+              set subnet $(ref.{{ prefix }}-{{ additionalIP.name }}.address)/32
+              {%- endif %}
+              set comment "{{ additionalIP.description | default('Added by deployment template')}}"
+            next
+          end
+          {%- endfor %}
+          {%- endfor %}
+          {{ properties.fwConfig | indent(10) }}
+    tags:
+      items:
+       - {{prefix}}-fgt
+       - fortigate
+
+{% if properties.createCloudFirewallRules %}
+{% for nic in properties.networks %}
+- name: {{ prefix }}-allow-{{ nic.name | default(loop.index)}}-to-fgt
+  type: compute.v1.firewall
+  properties:
+    network: {{ nic.vpcLink }}
+    priority: 100
+    sourceRanges:
+    - 0.0.0.0/0
+    allowed:
+    - IPProtocol: all
+{% endfor %}
+{% endif %}
+{# TODO: fix hard coded [1] index below. should be "for all internal networks"? #}
+{% for route in properties.routes %}
+- name: {{ prefix }}-{{ route.name | default( "route"~loop.index~"-via-fgt" ) }}
+{# NOTE: route naming scheme referred in ha-ap.jinja line 171 #}
+  type: compute.v1.route
+  properties:
+    network: {{ properties.networks[1].vpcLink }}
+    destRange: {{ route.destRange }}
+    {% if "ipCidrRange" in properties.networks[1] %}
+    nextHopIp: $(ref.{{ prefix }}-{{ fgname }}.networkInterfaces[1].networkIP)
+    {% else %}
+    nextHopInstance: $(ref.{{ prefix }}-{{ fgname }}.selfLink)
+    {% endif %}
+    priority: {{ route.priority | default(500) }}
+    tags: {{ route.tags | default([])}}
+    description: {{ route.description | default("route via FGT") }}
+{% endfor %}
+
+outputs:
+{% if "externalIP" in properties.networks[0] %}
+- name: port1PublicIP
+  value: $(ref.{{ prefix }}-{{ properties.networks[0].externalIP.name }}.address)
+{% endif %}
+- name: defaultPassword
+  value: {{ properties.adminPassword | default('$(ref.'~prefix~'-'~fgname~'-vm.id)')}}

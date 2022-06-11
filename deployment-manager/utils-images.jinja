@@ -1,0 +1,49 @@
+  {% macro getFgtImage(version, licenseType) -%}
+  {% set imageList = ({
+    '7.0.5': {
+      'byol': 'fortinet-fgt-705-20220211-001-w-license',
+      'payg': 'fortinet-fgtondemand-705-20220211-001-w-license'
+    },
+    '7.0.3': {
+      'byol': 'fortinet-fgt-703-20211208-001-w-license',
+      'payg': 'fortinet-fgtondemand-703-20211208-001-w-license'
+    },
+    '7.0.2': {
+      'byol': 'fortinet-fgt-702-20211021-001-w-license',
+      'payg': 'fortinet-fgtondemand-702-20211021-001-w-license'
+    },
+    '7.0.1': {
+      'byol': 'fortinet-fgt-701-20210721-001-w-license',
+      'payg': 'fortinet-fgtondemand-701-20210721-001-w-license'
+    },
+    '7.0.0': {
+      'byol': 'fortinet-fgt-700-20210407-001-w-license',
+      'payg': 'fortinet-fgtondemand-700-20210407-001-w-license'
+    },
+    '6.4.8': {
+      'byol': 'fortinet-fgt-648-20211124-001-w-license',
+      'payg': 'fortinet-fgtondemand-648-20211124-001-w-license'
+    },
+    '6.4.7': {
+      'byol': 'fortinet-fgt-647-20210907-001-w-license',
+      'payg': 'fortinet-fgtondemand-647-20210907-001-w-license'
+    },
+    '6.4.6': {
+      'byol': 'fortinet-fgt-646-20210531-001-w-license',
+      'payg': 'fortinet-fgtondemand-646-20210531-001-w-license'
+    },
+    '6.4.5': {
+      'byol': 'fortinet-fgt-645-20210302-001-w-license',
+      'payg': 'fortinet-fgtondemand-645-20210302-001-w-license'
+    },
+    '6.2.5': {
+      'byol': 'fortinet-fgt-625-20200831-001-w-license',
+      'payg': 'fortinet-fgtondemand-625-20200831-001-w-license'
+    },
+    '6.2.3': {
+      'byol': 'fortinet-fgt-623-20191223-001-w-license',
+      'payg': 'fortinet-fgtondemand-623-20191223-001-w-license'
+    }
+  }) -%}
+  https://www.googleapis.com/compute/v1/projects/fortigcp-project-001/global/images/{{ imageList[version][licenseType] }}
+  {%- endmacro %}

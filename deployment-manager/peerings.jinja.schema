@@ -1,0 +1,44 @@
+info:
+  title: Peerings
+  description: Creates peerings for peered hub-and-spoke design
+  version: 2.0
+
+requires:
+- hub
+- spokes
+
+properties:
+  hub:
+    type: object
+    requires:
+    - url
+    properties:
+      name:
+        type: string
+        description: Name of the hub VPC. Obligatory if template is called with references. If not defined, will be calculated from url
+      url:
+        type: string
+        description: URI of hub VPC resource
+  spokes:
+    type: array
+    maxItems: 25
+    items:
+      type: object
+      requires:
+      - url
+      properties:
+        name:
+          type: string
+          description: Name of the spoke VPC. Obligatory if template is called with references. If not defined, will be calculated from url
+        url:
+          type: string
+          description: Full URI (including "https://www.googleapis.com") to spoke VPC resource
+  deleteSpokeDefaultRoutes:
+    type: boolean
+    default: true
+    description: If template should remove the existing default route from spoke VPCs.
+  explicitDepend:
+    type: array
+    items:
+      type: string
+    description: List of resource names in this deployment to add to dependency list (eg. routes)

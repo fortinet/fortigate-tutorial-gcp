@@ -1,0 +1,18 @@
+{% macro getNthIp( cidr, n=1 ) -%}
+{% set mask=cidr.split('/')[1] %}{% set addrSplit=cidr.split('/')[0].split('.') %}{% set lastOct=addrSplit[3]|int + 1 + n %}{{ addrSplit[0:3]|join('.') ~ '.' ~ lastOct }}
+{%- endmacro %}
+
+
+{% macro getNthIpWithMask( cidr, n=1 ) -%}
+{% set mask=cidr.split('/')[1] %}{% set addrSplit=cidr.split('/')[0].split('.') %}{% set lastOct=addrSplit[3]|int + 1 + n %}{{ addrSplit[0:3]|join('.') ~ '.' ~ lastOct ~ '/' ~ mask }}
+{%- endmacro %}
+
+{% macro getNetmaskLong( cidr ) -%}
+{% set mask=cidr.split('/')[1]|int -%}
+{% set oct4=mask-24 -%}
+{% set oct3=mask-16-oct4 -%}
+{% set oct2=mask-8-oct3-oct4 -%}
+{% set oct1=mask-oct2-oct3-oct4 -%}
+{% set binMap=[ 0, 128, 192, 224, 240, 248, 252, 254, 255 ] -%}
+{{ binMap[oct1] ~'.'~ binMap[oct2] ~'.'~ binMap[oct3] ~'.'~ binMap[oct4] }}
+{%- endmacro -%}

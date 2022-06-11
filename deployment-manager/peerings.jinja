@@ -1,0 +1,60 @@
+{% set prefix = prefix|default(env.deployment) %}
+
+resources:
+{% for spoke in properties.spokes %}
+{% set spokeName = spoke.name | default(spoke.url.split( "/" ) | last) %}
+
+{% if properties.deleteSpokeDefaultRoutes %}
+{# NOTE: this code will break if default route was already deleted and deleteDefaultROutes is set to true #}
+- name: spoke{{loop.index}}-listDefaultRoutes
+  action: gcp-types/compute-v1:compute.routes.list
+  properties:
+    filter: (destRange="0.0.0.0/0") AND (network="{{ spoke.url }}")
+- name: spoke{{loop.index}}-deleteDefaultRoute
+  action: gcp-types/compute-v1:compute.routes.delete
+  metadata:
+    runtimePolicy:
+    - CREATE
+    dependsOn: {{properties.explicitDepend}}
+  properties:
+    route: $(ref.spoke{{loop.index}}-listDefaultRoutes.items[0].name)
+{% endif %}
+
+
+- name: {{ prefix }}-peer-spoke{{loop.index}}-to-hub
+  action: gcp-types/compute-v1:compute.networks.addPeering
+  properties:
+    network: {{ spokeName }}
+    networkPeering:
+      name: {{ prefix }}-peer-spoke{{loop.index}}-to-hub
+      network: {{ properties.hub.url }}
+      exchangeSubnetRoutes: true
+      importCustomRoutes: true
+  metadata:
+    runtimePolicy:
+    - CREATE
+    dependsOn:
+    {% if properties.deleteSpokeDefaultRoutes %}
+    - spoke{{loop.index}}-deleteDefaultRoute
+    {% endif %}
+    {% if not loop.first %}
+    - {{ prefix }}-peer-hub-to-spoke{{loop.index-1}}
+    {% endif %}
+    {% for dependency in properties.waitForRoutes %}
+    {#}- {{dependency}} {#}
+    {% endfor %}
+- name: {{ prefix }}-peer-hub-to-spoke{{loop.index}}
+  action: gcp-types/compute-v1:compute.networks.addPeering
+  properties:
+    network: {{ properties.hub.name | default(properties.hub.url.split( '/' ) | last) }}
+    networkPeering:
+      name: {{ prefix }}-peer-hub-to-spoke{{loop.index}}
+      network: {{ spoke.url }}
+      exchangeSubnetRoutes: true
+      exportCustomRoutes: true
+  metadata:
+    runtimePolicy:
+    - CREATE
+    dependsOn:
+    - {{ prefix }}-peer-spoke{{loop.index}}-to-hub
+{% endfor %}

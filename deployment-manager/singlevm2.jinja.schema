@@ -1,0 +1,167 @@
+info:
+  title: Single Fortigate VM
+  description: Advanced GCP Deployment Manager template for deploying a single FortiGate appliance in Google Compute Engine.
+  version: 2.0
+
+imports:
+- path: utils-netcalc.jinja
+- path: utils-images.jinja
+
+required:
+- zone
+- networks
+
+properties:
+  prefix:
+    type: string
+    description: Prefix to be added to all resource names. Defaults to deployment name if not set.
+  name:
+    type: string
+    description: (optional) Name of the firewall instance (minus prefix)
+    default: fgt
+  zone:
+    type: string
+    description: Availability zone name for master instance
+    metadata: gce-zone
+  instanceType:
+    type: string
+    description: Instance size to be used for FGT deployment
+    default: e2-highcpu-4
+  license:
+    type: object
+    description: Licensing information. properties.type can be "byol" or "payg". For BYOL deployments include licproperty pointing to the license files.
+    default:
+      type: payg
+    properties:
+      type:
+        type: string
+        enum: ["payg", "byol"]
+        description: Type of license (and image) to be used
+      lic:
+        type: string
+        description: name of the import holding contents of the license file (.lic)
+  version:
+    type: string
+    description: Firmware version to deploy.
+    default: 7.0.5
+  logDiskSizeGb:
+    type: number
+    description: Size of the secondary disk for logging. Set to 0 to disable the log disk.
+    default: 100.0
+  networks:
+    type: array
+    description: Indicate VPC Networks and subnets to be used (internal, external, hasync, mgmt). Each network need references to vpc and subnet (vpc and subnet properties) as well as cidr defined.
+    maxItems: 8
+    uniqueItems: true
+    items:
+      type: object
+      required:
+      - vpcLink
+      - subnetLink
+      properties:
+        vpcLink:
+          type: string
+          description: (required) Link to the GCP VPC Network resource for attaching a virtual network interface
+        subnetLink:
+          type: string
+          description: (required) Link to the GCP Subnetwork resource for attaching a virtual network interface
+        name:
+          type: string
+          description: Short name of the network. Used to label some resources
+        description:
+          type: string
+          description: This property will be used as an interface description in FGT configuration
+        role:
+          type: string
+          description: This property will be used as interface role in FGT configuration. If missing, default values are pulled from nicPropMap below
+        allowaccess:
+          type: string
+          description: This property can be used to override default allowaccess settings for an interface.
+        networkIP:
+          type: string
+          description: If present, this value will be configured as a static IP of the interface
+        ipCidrRange:
+          type: string
+          description: Connected subnet CIDR range. If networkIP is not set, ipCidrRange will be used to calculate static IP address of the interface. If ipCidrRange is not set the interface will be configured to use DHCP
+        externalIP:
+          type: object
+          required:
+          - name
+          properties:
+            name:
+              type: string
+            networkTier:
+              type: string
+        additionalExternalIPs:
+          type: array
+          description: List of additional IP addresses. Additional IP addresses will be created if they do not yet exist, there will be a TCP and UDP forwarding rule created unless noFwdRule flag is set. Each additional external ip will be added to firewall configuration as an IP Pool.
+          uniqueItems: true
+          items:
+            type: object
+            required:
+            - name
+            properties:
+              name:
+                type: string
+              createAddressAndFwdRule:
+                type: boolean
+                default: true
+              description:
+                type: string
+              networkTier:
+                type: string
+                enum: ['PREMIUM','STANDARD']
+
+  serviceAccount:
+    type: string
+    description: Service account to be assigned to the instances
+    default: default
+  serialPortEnable:
+    type: boolean
+    description: Enable or disable serial port for instances
+    default: true
+  multiIpSubnetEnable:
+    type: boolean
+    description: Enable MULTI_IP_SUBNET option when deploying FortiGate
+    default: true
+  fwConfig:
+    type: string
+    description: Additional configuration to be passed to the firewall
+    default: ""
+  routes:
+    type: array
+    default:
+    - destRange: 0.0.0.0/0
+      name: default
+      priority: 100
+  createCloudFirewallRules:
+    type: boolean
+    default: true
+    description: Can be used to skip creating cloud firewall rules and direct route (e.g. for HA slave instance)
+  nicPropMap:
+    type: array
+    default:
+    - role: wan
+      description: external
+      allowaccess: ping https ssh fgfm
+    - role: lan
+      description: internal
+      allowaccess: ping
+    - role: undefined
+      description: heartbeat
+      allowaccess: ping
+    - role: undefined
+      description: management
+      allowaccess: ping https ssh fgfm
+    - role: undefined
+      description: ""
+      allowaccess: ping
+    - role: undefined
+      description: ""
+      allowaccess: ping
+    - role: undefined
+      description: ""
+      allowaccess: ping
+    - role: undefined
+      description: ""
+      allowaccess: ping

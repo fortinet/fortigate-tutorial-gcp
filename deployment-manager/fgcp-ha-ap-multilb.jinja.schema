@@ -1,0 +1,109 @@
+info:
+  title: FGCP Active-Passive multi-Load Balancer Sandwich
+  description: "Advanced template for deploying cluster of 2 FortiGates in FGCP HA Active-Passive cluster with variable number of interfaces and multiple load balancers."
+  version: 2.0
+
+imports:
+- path: utils-netcalc.jinja
+- path: singlevm2.jinja
+
+
+properties:
+  prefix:
+    type: string
+    description: Prefix to be added to all resource names
+  zones:
+    type: array
+    default:
+    - europe-west3-b
+    - europe-west3-c
+  instanceType:
+    type: string
+    description: Instance size to be used for FGT deployment
+    default: e2-highcpu-4
+  license:
+    type: object
+    description: Licensing information. properties.type can be "byol" or "payg". For BYOL deployments include lics array pointing to the license files.
+    default:
+      type: payg
+    required:
+    - type
+    properties:
+      type:
+        type: string
+        enum: ["payg", "byol"]
+      lics:
+        type: array
+        items:
+          type: string
+  version:
+    type: string
+    description: Firmware version to deploy. Minimum supported version is 6.4.0
+    default: 7.0.5
+  networks:
+    type: array
+    description: Indicate VPC Networks and subnets to be used (internal, external, hasync, mgmt). Each network need references to vpc and subnet (vpc and subnet properties) as well as cidr defined.
+    minItems: 4
+    maxItems: 8
+    items:
+      type: object
+      required:
+      - vpcLink
+      - subnetLink
+      - ipCidrRange
+      properties:
+        name:
+          type: string
+        vpcLink:
+          type: string
+        subnetLink:
+          type: string
+        ipCidrRange:
+          type: string
+        addressOffset:
+          type: integer
+          default: 0
+          description: Use this parameter to affect calculating of the network IP addresses for FGT interfaces and load balancers. By default it's .2, .3 and .4
+        routes:
+          type: array
+          description: List of routes to point to the FGT cluster's ILB in this VPC Network. Triggers creation of ILB.
+        externalIP:
+          type: object
+          description: This external IP will be created by the template and bound directly to the network interface of FortiGate VM.
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+        serviceIPs:
+          type: array
+          description: These external IP addresses will be created by the template and assigned as frontends to the external Network Load Balancer. They will be also added to FortiGate configuration for probe-response and outbound pools.
+          maxItems: 32
+          items:
+            type: object
+            required:
+            - name
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+        allowaccess:
+          type: string
+          description: This setting configures allowaccess option on FortiGates for this network interface. Default values are defined in nicPropMap in singlevm2.jinja.schema
+  serviceAccount:
+    type: string
+    description: Service account to be assigned to the instances
+    default: default
+  serialPortEnable:
+    type: boolean
+    description: Enable or disable serial port for instances
+    default: true
+  probePort:
+    type: integer
+    description: This TCP port will be used for HTTP probes.
+    default: 8008
+  fwConfig:
+    type: string
+    description: Additional configuration to be passed to the firewall
+    default: ""
