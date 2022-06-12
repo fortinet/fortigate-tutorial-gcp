@@ -1,7 +1,7 @@
 #### FortiGate Deployment Tutorial for Google Cloud
 # Deployment Manager
 
-This directory contains Deployment Manager (DM) templates to deploy and manage FortiGate reference architecture in Google Cloud. It builds the complete configuration in a single deployment. Note that the FortiGate configuration is provided as a bootstrap script and applying any changes to FortiGate configuration is NOT possible by updating the code as it requires re-deploying of FortiGate instances.
+This directory contains Deployment Manager (DM) templates to deploy and configure FortiGate reference architecture in Google Cloud. It builds the complete configuration in a single deployment. Note that the FortiGate configuration is provided as a bootstrap script and applying any changes to FortiGate configuration after deployment completes is NOT possible by updating the code - it requires re-deploying of FortiGate instances.
 
 ![Reference architecture overview](../docs/images/overview.svg)
 
