@@ -1,4 +1,4 @@
-# FortiGate Reference Architecture for GCP: Use-cases
+#### FortiGate Deployment Tutorial for Google Cloud: Use-cases
 # Protecting public services (ingress N-S inspection)
 
 FortiGate instances empowered by FortiGuard services can be used to secure your workloads running in the cloud against any bad actors accessing them from the Internet. Publishing your services via FortiGate allows you to not only scan traffic against malicious payload, but also provide granular access rules or enforce ZTNA policies.

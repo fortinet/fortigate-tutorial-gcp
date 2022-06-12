@@ -23,4 +23,4 @@ To use this module include it in your root configuration and provide with at lea
 - license_files - list of paths to 2 license (.lic) files to be applied to the FortiGates. If skipped, VMs will be deployed without license and you will have to apply them manually upon first connection.
 - subnets - list of 4 names of subnets already existing in the region to be used as external, internal, heartbeat and management networks.
 
-See [main.tf in day0](../day0/main.tf) directory for an example.
+See [main.tf in day0](../../day0/main.tf) directory for an example.

@@ -44,6 +44,5 @@ To enable east-west scanning use the [spoke-vpc](modules/usecases/spoke-vpc) mod
 
 Note: due to GCP limitations on parallel peering operations you might encounter errors when deploying this module as for the clarity of code it limits explicit depends_on arguments. If you encounter any errors just try again.
 
-### Secure Hybrid Cloud (IPS for Interconnet)
-
-### Private Service Connect
+## Next steps:
+- [Deploy base configuration (day0)](day0)

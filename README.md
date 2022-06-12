@@ -12,12 +12,17 @@ This repository is use-case centric. It was created to help you match the config
 - *gcloud* - deployment using Google Cloud CLI is provided as a large script. Parts of FortiGate configuration related to use-cases is added after the base deployment using SSH. Removing or changing of configuration is not part of the provided example script, but can be easily scripted by administrators.
 
 ## Architecture
-The recommended way to deploy FortiGates is a multi-AZ Active-Passive FGCP cluster with set of (up to 3) load balancers to direct the traffic flows (a pattern known as "load balancer sandwich"):
+The recommended way to deploy FortiGates is a multi-AZ Active-Passive FGCP cluster with set of (up to 3) load balancers to direct the traffic flows through the active FGT instance (a pattern known as "load balancer sandwich"):
 ![FortiGate reference architecture overview](docs/images/overview.svg)
 
-While it is technically possible to use a single network interface to connect to both internal and external networks, it is recommended to use one external and one internal NIC for clarity of architecture and FortiGate configuration. Additional two NICs will be used for cluster heartbeat and management.
+While it is technically possible to use a single network interface to connect to both internal and external networks, it is recommended to use one external and one internal NIC for clarity of architecture and FortiGate configuration. Additional two NICs will be used for cluster heartbeat and management. This means you will need 4 separate VPC networks to connect to the FortiGates.
 
-It is recommended to place all the workloads in separate VPCs (possibly in separate projects) and use [VPC Peering](https://cloud.google.com/vpc/docs/vpc-peering) to maintain connectivity between FortiGate internal VPC and workload VPCs.
+*Note: starting from version 7.0 you can use the same network interface for FGCP heartbeat and management.*
+
+It is recommended to place the workloads (your application servers) in separate VPCs (possibly in separate projects) and use [VPC Peering](https://cloud.google.com/vpc/docs/vpc-peering) to maintain connectivity between FortiGate internal VPC and workload VPCs. You can choose to either:
+
+- follow a classic multi-tier deployment pattern - to provide East-West inspection between tiers, each one of them needs to be deployed as a separate VPC (mind the peering group limits)
+- follow the standard GCP model and use only 3 large Shared VPCs (prod, non-prod, dev) peered with the internal VPC of FortiGate. Note that this design does **NOT** allow East-West threat inspection within Shared VPCs.
 
 * [Read more about the reference architecture design in GCP](docs/architecture-reference.md)
 * [Read more about the tutorial sample architecture](docs/architecture-tutorial.md)

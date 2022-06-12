@@ -19,8 +19,8 @@ Reference architecture features the following building blocks:
 
 ## Active-Passive HA cluster
 
-This architecture uses 2 FortiGate instances in an Active-Passive HA cluster between set of load balancers ("load balancer sandwich" pattern). LB Sandwich design enables use of multiple public IPs and provides faster, configurable failover times when compared to SDN-connector based.
-Note that at the moment Google Cloud feature allowing sustaining existing connections upon HA failover is available in preview.
+This architecture uses 2 FortiGate instances in an Active-Passive HA cluster between set of load balancers ("load balancer sandwich" pattern). LB Sandwich design enables use of multiple public IPs and provides faster, configurable failover times when compared to SDN connector-based approach.
+Note that at the moment Google Cloud feature allowing sustaining existing connections upon HA failover ([connectionTracking.connectionPersistenceOnUnhealthyBackends](https://cloud.google.com/load-balancing/docs/internal#connection-persistence)) is available in preview.
 
 HA multi-zone deployments provide **99.98%** Compute Engine SLA vs. **99.5%** for single instances. See [Google Compute Engine SLA](https://cloud.google.com/compute/sla) for details.
 
@@ -44,14 +44,14 @@ Machine type depends on your use-case, but to accommodate for 4 NICs it must hav
 
 You should create and attach a logdisk to each instance to store log data.
 
-FortiGates shall be configured in a unicast FGCP active-passive cluster with heartbeat over port3 and dedicated management on port4. Port4 can be optionally linked to an external IP unless the private IP addresses of the interfaces are available in another way (e.g. via VLAN attachment). No other NICs need public IP addresses. Port3 needs a static private IP address as it's part of the configuration of the peer instance in the cluster. Other NICs can be configured with static IP addresses for consistency.
+FortiGates would be configured in a unicast FGCP active-passive cluster with heartbeat over port3 and dedicated management on port4. Port4 can be optionally linked to an external IP unless the private IP addresses of the interfaces are available in another way (e.g. via VLAN attachment). No other NICs need public IP addresses. Port3 needs a static private IP address as it's part of the configuration of the peer instance in the cluster. Other NICs can be configured with static IP addresses for consistency.
 
 Outbound connections from port1 to Google Compute API and FortiGuard services must be made available, preferably using Cloud NAT or using public IPs attached directly to port1 of each VM.
 
 ### Load Balancers and traffic flows
 Cloud infrastructure directs traffic flows to the active FortiGate instance using load balancers. In this case load balancers will not really balance the connections but simply direct them to the single active (healthy) instance and not to the passive (unhealthy) one. Both Internal and External Load Balancers in GCP can use a Backend Service as the target. You will have to create a separate regional Backend Service resource for each interface receiving production traffic (port1 and port2, but not port3 and port4) as well as a Forwarding Rule to bind a load balancer frontend IP address with the backend service. You can re-use the same Unmanaged Instance Groups for all Backend Services. Mind that in case of processing both the traffic from public Internet as well as traffic from Interconnect you will have to create both external and internal load balancer for port1. When creating load balancers using web console their internal components (Backend Service, Forwarding Rule) might be not explicitly visible.
 
-Internal Load Balancers will be [used as next hop by custom routes](https://cloud.google.com/load-balancing/docs/internal/ilb-next-hop-overview) and it's enough to use a rule for any port of either TCP or UDP protocol. Custom route will automatically enable routing of all TCP/UDP/ICMP traffic.
+Internal Load Balancers will be [used as next hop by custom routes](https://cloud.google.com/load-balancing/docs/internal/ilb-next-hop-overview) and it's enough to use a single rule for any port of either TCP or UDP protocol. Custom route will automatically enable routing of all TCP/UDP/ICMP traffic on all ports.
 
 External Load Balancer does not support routing, so the connections to its public IP addresses will have to be terminated or redirected (DNATed) on the active FortiGate. It's recommended to use the new L3_DEFAULT protocol for ELB.
 
@@ -62,7 +62,7 @@ Load Balancers detect active instance using [health checks](https://cloud.google
 2. Creating additional loopback interface and redirecting probes to it using VIPs - this solution is recommended if you create FortiGate configuration using terraform as (unlike secondary IPs) the VIPs and firewall policies can be easily created and destroyed. It's also recommended to use this approach if you have many public IP addresses.
 3. Forwarding probes to the backend server - this solution is not recommended as a failover of a single backend service will attempt to fail over whole firewall cluster, which in many cases will not match the FGCP status.
 
-[Connection Tracking](https://cloud.google.com/load-balancing/docs/internal#connection-persistence) feature of GCP load balancers (in preview at the time of writing) allows graceful failover of existing connections. Use it if your company policy allows using Google Compute Beta API.
+[Connection Tracking](https://cloud.google.com/load-balancing/docs/internal#connection-persistence) feature of GCP load balancers (in preview at the time of writing) allows graceful failover of existing connections. Use it if your organization policy allows using Google Compute Beta API.
 
 ## Peering-based hub and spoke
 
@@ -82,6 +82,8 @@ Note that besides FortiGate license fees you will have to cover the costs of the
 - Forwarding rules
 - inter-zonal heartbeat traffic
 - VM disk storage
+
+Use Google [Cloud Pricing Calculator](https://cloud.google.com/products/calculator/#id=41ff2e84-f518-4b22-a396-71effe7682db) for cost estimate.
 
 ## Supported use-cases
 ### Protecting public services (ingress N-S inspection)

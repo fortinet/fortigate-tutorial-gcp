@@ -1,4 +1,4 @@
-# FortiGate Reference Architecture for GCP: Use-cases
+#### FortiGate Deployment Tutorial for Google Cloud: Use-cases
 # Secure NAT Gateway (outbound N-S inspection)
 
 FortiGate is a great choice to replace the Cloud NAT service. You can easily police access based on VM metadata and grant very selective access to internet services while adding AV scanning on top to make sure your workloads remain healthy.

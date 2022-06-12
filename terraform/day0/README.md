@@ -9,9 +9,17 @@ The design is using a "load balancer sandwich" design with ILBs (Internal Load B
 More details on the design can be found [here](../../docs/architecture-reference.md).
 
 ### Prerequisites
+#### Service account
 FortiGate uses its External Fabric Connector (a.k.a. SDN Connector) to support firewall policies based on GCE metadata instead of just IP addresses. In order for Connector to function, the FortiGate instances must be given access to all needed projects. It is highly recommended to use the minimum set of privileges by creating a custom role and a service account using `[service_account_create.sh]`(../../service_account_create.sh) script and providing service account name in `service_account` module variable. Otherwise the default GCE account will be used.
 
-You should create VPC networks and subnets in the region where you plan to deploy FortiGates before or as a part of day0 configuration. Make sure the `subnets` argument passed to the `fgcp-ha-ap-lb` module points to the proper subnets. You will need 4 VPCs connected to 4 different network interfaces of your FortiGate instances:
+#### Licenses
+This tutorial uses BYOL-licensed images. You must obtain and activate your licenses before running terraform configuration. The `.lic` files must be downloaded from [support.fortinet.com](https://support.fortinet.com) portal and put in the day0 directory as `lic1.lic` and `lic2.lic`. If you prefer to use the PAYG images you'll have to:
+
+1. remove the reference to the files from the [day0/main.tf](main.tf) file (lines 31-34)
+1. modify the image used by the module by replacing `family = "fortigate-70-byol"` with `family = "fortigate-70-payg"` in the [modules/fgcp-ha-ap-lb](../modules/fgcp-ha-ap-lb) file
+
+#### Networks
+The `fgcp-ha-ap-lb` module takes a list of subnet names as its `subnets` argument. 4 VPC networks and subnets will be created in the region where you plan to deploy FortiGates as a part of day0 configuration, so they do not need to be created manually before applying the configuration.  The  VPCs will be connected to 4 different network interfaces of your FortiGate instances:
 - port1 (nic0) - external (untrusted) network
 - port2 (nic1) - internal (trusted) network
 - port3 (nic2) - FGCP hertbeat/sync interface
@@ -19,7 +27,7 @@ You should create VPC networks and subnets in the region where you plan to deplo
 
 *Note: due to the way Google Cloud networking works it is NOT possible to deploy a FortiGate VM instance with NICs connected to different subnets of the same VPC.*
 
-### Contents
+### Resources
 Following resources will be created:
 - FortiGate VM instances
 - zonal unmanaged instance groups
