@@ -42,7 +42,7 @@ locals {
 resource "random_string" "api_key" {
   length                 = 30
   special                = false
-  number                 = true
+  numeric                = true
 }
 
 # Create FortiGate instances with secondary logdisks and configuration. Everything 2 times (active + passive)

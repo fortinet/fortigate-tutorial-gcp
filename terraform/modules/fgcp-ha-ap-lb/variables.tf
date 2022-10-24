@@ -59,7 +59,7 @@ variable api_acl {
 
 variable license_files {
   type        = list(string)
-  default     = ["",""]
+  default     = ["NONE","NONE"]
   description = "List of license (.lic) files to be applied for BYOL instances."
 }
 
