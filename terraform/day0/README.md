@@ -9,6 +9,14 @@ The design is using a "load balancer sandwich" design with ILBs (Internal Load B
 More details on the design can be found [here](../../docs/architecture-reference.md).
 
 ### Prerequisites
+#### Enable APIs
+Enable compute and container APIs. While this tutorial does not use containers, the API is referenced when creating the custom role:
+```
+gcloud services enable compute.googleapis.com
+gcloud services enable container.googleapis.com
+```
+Compute Engine API must be enabled for this tutorial, Kubernetes Engine API (container.googleapis.com) can be omitted, but it will trigger warnings when creating a custom role and when debugging SDN Connector on FortiGate CLI.
+
 #### Service account
 FortiGate uses its External Fabric Connector (a.k.a. SDN Connector) to support firewall policies based on GCE metadata instead of just IP addresses. In order for Connector to function, the FortiGate instances must be given access to all needed projects. It is highly recommended to use the minimum set of privileges by creating a custom role and a service account using `[service_account_create.sh]`(../../service_account_create.sh) script and providing service account name in `service_account` module variable. Otherwise the default GCE account will be used.
 
@@ -24,6 +32,8 @@ The `fgcp-ha-ap-lb` module takes a list of subnet names as its `subnets` argumen
 - port2 (nic1) - internal (trusted) network
 - port3 (nic2) - FGCP hertbeat/sync interface
 - port4 (nic3) - dedicated management interface
+
+Make sure your project quota is high enough to accommodate for the new VPC networks.
 
 *Note: due to the way Google Cloud networking works it is NOT possible to deploy a FortiGate VM instance with NICs connected to different subnets of the same VPC.*
 

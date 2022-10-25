@@ -1,12 +1,12 @@
 resource "google_compute_network" "vpcs" {
   count                   = length(var.networks)
-  name                    = "${var.prefix}-${var.networks[count.index]}-vpc"
+  name                    = "${var.prefix}vpc-${var.networks[count.index]}"
   auto_create_subnetworks = false
 }
 
 resource "google_compute_subnetwork" "subnets" {
   count         = length(var.networks)
-  name          = "${var.prefix}-${var.networks[count.index]}-sb"
+  name          = "${var.prefix}sb-${var.networks[count.index]}"
   network       = google_compute_network.vpcs[count.index].self_link
   ip_cidr_range = "${var.ip_cidr_2oct}.${count.index}.0/24"
 }
