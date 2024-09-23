@@ -28,9 +28,11 @@ resource "google_compute_region_backend_service" "elb_bes" {
 
   backend {
     group = var.day0.fgt_umigs[0]
+    balancing_mode = "CONNECTION"
   }
   backend {
     group = var.day0.fgt_umigs[1]
+    balancing_mode = "CONNECTION"
   }
 
   health_checks = [var.day0.health_check]

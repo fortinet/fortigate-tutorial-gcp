@@ -175,9 +175,11 @@ resource "google_compute_region_backend_service" "ilb_bes" {
 
   backend {
     group                = google_compute_instance_group.fgt-umigs[0].self_link
+    balancing_mode       = "CONNECTION"
   }
   backend {
     group                = google_compute_instance_group.fgt-umigs[1].self_link
+    balancing_mode       = "CONNECTION" 
   }
 
   health_checks          = [google_compute_region_health_check.health_check.self_link]
